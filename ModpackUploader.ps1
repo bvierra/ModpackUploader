@@ -1,8 +1,72 @@
 . .\settings.ps1
 
+$downloadUrl = @{}
+$downloadUrl['7z'] = 'https://www.7-zip.org/a/7z1900-x64.exe'
 
-function Download-GithubRelease {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSUseApprovedVerbs",Scope="Function",Target="Download-GithubRelease")]
+$CWD=Get-Location
+$BinPath="$CWD\.bin"
+
+
+function Get-PreReqs {
+    if(!(Test-Path $BinPath)) {
+        New-Item -ItemType Directory -Force -Path $BinPath
+    }
+
+    <#
+     # Required no matter what options are set 
+     #>
+
+    # Java
+    if (!(Get-Command "java.exe" -ErrorAction SilentlyContinue)) {
+        throw 'Could not locate java.exe in your $env:Path. Aborting!'
+    }
+
+    # Curl
+    # TODO - Download and install to $BinPath
+    if (!(Get-Command "curl.exe" -ErrorAction SilentlyContinue)) {
+        throw 'Could not locate curl.exe in your $env:Path. Aborting!'
+    }
+
+    # 7-Zip
+    if (Get-Command "7z.exe" -ErrorAction SilentlyContinue) {
+        # Checks current $end:Path for 7z.exe and uses it if found
+        Set-Alias sz "7z.exe"
+    } elseif (test-path "$env:ProgramFiles\7-Zip\7z.exe") {
+        # Checks ProgramFiles and uses it if found
+        Set-Alias sz "$env:ProgramFiles\7-Zip\7z.exe"
+    } else {
+        # Could not find so download from 7-zip.org and place in $BinPath
+        Write-Host "Could not find 7z.exe in your path or at $env:ProgramFiles\7-Zip\7z.exe"
+        Write-Host "Downloading it now and placing it in $BinPath"
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest $downloadUrl['7z'] -Out $BinPath\7z.exe -ErrorAction Stop
+        Set-Alias sz "$BinPath\7z.exe"
+    }
+
+    # TwitchExportBuilder (if enabled)
+    if ($ENABLE_MANIFEST_BUILDER_MODULE) {
+        $TwitchExportBuilder = "TwitchExportBuilder.exe"
+        if (!(Test-Path $BinPath\$TwitchExportBuilder) -or $ENABLE_ALWAYS_UPDATE_JARS) {
+            Remove-Item $BinPath\$TwitchExportBuilder -Recurse -Force -ErrorAction SilentlyContinue
+            Get-GithubRelease -repo "Gaz492/twitch-export-builder" -file "twitch-export-builder_windows_amd64.exe"
+            Move-Item -Path ".\twitch-export-builder_windows_amd64.exe" -Destination "$BinPath\$TwitchExportBuilder" -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Changelog Generator
+    if ($ENABLE_CHANGELOG_GENERATOR_MODULE -and $ENABLE_MODPACK_UPLOADER_MODULE) {
+        $ChangelogGenerator = "ChangelogGenerator.jar"
+        if (!(Test-Path $BinPath\$ChangelogGenerator) -or $ENABLE_ALWAYS_UPDATE_JARS) {
+            Remove-Item $BinPath\$ChangelogGenerator -Recurse -Force -ErrorAction SilentlyContinue
+            Get-GithubRelease -repo "TheRandomLabs/ChangelogGenerator" -file $ChangelogGenerator
+            Rename-Item -Path $ChangelogGenerator -Destination "$BinPath\$ChangelogGenerator" -ErrorAction SilentlyContinue
+        }
+    }
+
+}
+
+function Get-GithubRelease {
+    
     param(
         [parameter(Mandatory=$true)]
         [string]
@@ -21,7 +85,7 @@ function Download-GithubRelease {
     $download = "https://github.com/$repo/releases/download/$tag/$file"
     $name = $file.Split(".")[0]
 
-    Write-Host Dowloading...
+    Write-Host Downloading $download to $file...
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest $download -Out $file
 
@@ -34,26 +98,14 @@ function Clear-SleepHost {
     Clear-Host
 }
 
-if (-not (test-path "$env:ProgramFiles\7-Zip\7z.exe")) {throw "$env:ProgramFiles\7-Zip\7z.exe needed to use the ModpackUploader."} 
-    Set-Alias sz "$env:ProgramFiles\7-Zip\7z.exe"
+Get-PreReqs
 
 if ($ENABLE_MANIFEST_BUILDER_MODULE) {
-    $TwitchExportBuilder = "TwitchExportBuilder.exe"
-    if (!(Test-Path $TwitchExportBuilder) -or $ENABLE_ALWAYS_UPDATE_JARS) {
-        Remove-Item $TwitchExportBuilder -Recurse -Force -ErrorAction SilentlyContinue
-        Download-GithubRelease -repo "Gaz492/twitch-export-builder" -file "twitch-export-builder_windows_amd64.exe"
-		Rename-Item -Path "twitch-export-builder_windows_amd64.exe" -NewName $TwitchExportBuilder -ErrorAction SilentlyContinue
-    }
-    .\TwitchExportBuilder.exe -n "$CLIENT_FILENAME" -p "$MODPACK_VERSION"
+    & "$BinPath\TwitchExportBuilder.exe" -n "$CLIENT_FILENAME" -p "$MODPACK_VERSION"
     Clear-SleepHost
 }
 
 if ($ENABLE_CHANGELOG_GENERATOR_MODULE -and $ENABLE_MODPACK_UPLOADER_MODULE) {
-    $ChangelogGenerator = "ChangelogGenerator.jar"
-    if (!(Test-Path $ChangelogGenerator) -or $ENABLE_ALWAYS_UPDATE_JARS) {
-        Remove-Item $ChangelogGenerator -Recurse -Force 
-        Download-GithubRelease -repo "TheRandomLabs/ChangelogGenerator" -file $ChangelogGenerator
-    }
     Remove-Item oldmanifest.json, manifest.json, shortchangelog.txt, MOD_CHANGELOGS.txt -ErrorAction SilentlyContinue
     sz e "$CLIENT_FILENAME`-$LAST_MODPACK_VERSION.zip" manifest.json
     Rename-Item -Path manifest.json -NewName oldmanifest.json
@@ -65,7 +117,7 @@ if ($ENABLE_CHANGELOG_GENERATOR_MODULE -and $ENABLE_MODPACK_UPLOADER_MODULE) {
     Write-Host "Generating changelog..." -ForegroundColor Green
     Write-Host ""
 
-    java -jar ChangelogGenerator.jar oldmanifest.json manifest.json
+    java -jar "$BinPath\ChangelogGenerator.jar" oldmanifest.json manifest.json
     Rename-Item -Path changelog.txt -NewName MOD_CHANGELOGS.txt
 }
 
