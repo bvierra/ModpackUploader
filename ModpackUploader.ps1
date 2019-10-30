@@ -1,6 +1,8 @@
 . .\settings.ps1
 
+
 function Download-GithubRelease {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSUseApprovedVerbs",Scope="Function",Target="Download-GithubRelease")]
     param(
         [parameter(Mandatory=$true)]
         [string]
@@ -176,6 +178,17 @@ if ($ENABLE_SERVER_FILE_MODULE -and $ENABLE_MODPACK_UPLOADER_MODULE) {
     Write-Host ""
 
     $ResponseServer = curl.exe --url "https://minecraft.curseforge.com/api/projects/$CURSEFORGE_PROJECT_ID/upload-file" --user "$CURSEFORGE_USER`:$CURSEFORGE_TOKEN" -H "Accept: application/json" -H X-Api-Token:$CURSEFORGE_TOKEN -F metadata=$SERVER_METADATA -F file=@$SERVER_FILENAME --progress-bar
+    $ResponseServerId = $ResponseServer.id
+
+    Write-Host ""
+    Write-Host "######################################" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "The modpack server files have been uploaded." -ForegroundColor Green
+    Write-Host "ID returned: $ResponseServerId" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "######################################" -ForegroundColor Cyan
+    Write-Host ""
+    Start-Sleep -Seconds 1
 }
 
 Clear-SleepHost
